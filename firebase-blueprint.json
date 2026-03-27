@@ -1,0 +1,84 @@
+{
+  "entities": {
+    "Product": {
+      "title": "Product",
+      "description": "A menu item in the restaurant",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "The name of the product" },
+        "description": { "type": "string", "description": "A short description of the product" },
+        "price": { "type": "number", "description": "The price of the product" },
+        "category": { "type": "string", "description": "The category (e.g., Lanches, Bebidas, Açaí)" },
+        "imageUrl": { "type": "string", "description": "URL of the product image" },
+        "active": { "type": "boolean", "description": "Whether the product is currently available" }
+      },
+      "required": ["name", "description", "price", "category", "imageUrl", "active"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "A customer's order",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The ID of the user who placed the order" },
+        "customerName": { "type": "string", "description": "Name of the customer" },
+        "customerPhone": { "type": "string", "description": "Phone number of the customer" },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "productId": { "type": "string" },
+              "name": { "type": "string" },
+              "price": { "type": "number" },
+              "quantity": { "type": "number" }
+            },
+            "required": ["productId", "name", "price", "quantity"]
+          },
+          "description": "The items in the order"
+        },
+        "total": { "type": "number", "description": "Total price of the order" },
+        "status": { "type": "string", "enum": ["pending", "preparing", "delivering", "completed", "cancelled"], "description": "Current status of the order" },
+        "address": {
+          "type": "object",
+          "properties": {
+            "cep": { "type": "string" },
+            "street": { "type": "string" },
+            "number": { "type": "string" },
+            "complement": { "type": "string" },
+            "neighborhood": { "type": "string" },
+            "city": { "type": "string" },
+            "state": { "type": "string" }
+          },
+          "required": ["cep", "street", "number", "neighborhood", "city", "state"]
+        },
+        "createdAt": { "type": "string", "format": "timestamp", "description": "When the order was placed" }
+      },
+      "required": ["userId", "customerName", "customerPhone", "items", "total", "status", "address", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "A user of the application",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string", "enum": ["admin", "customer"], "description": "The role of the user" },
+        "email": { "type": "string", "format": "email", "description": "The email address of the user" },
+        "name": { "type": "string", "description": "The display name of the user" }
+      },
+      "required": ["role", "email", "name"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "The collection of all products in the menu"
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "The collection of all customer orders"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "The collection of user profiles and roles"
+    }
+  }
+}

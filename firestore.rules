@@ -1,0 +1,197 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: products
+    // Document ID: auto-generated
+    // Fields:
+    //   - name: string (required, max 100 chars)
+    //   - description: string (required, max 500 chars)
+    //   - price: number (required, >= 0)
+    //   - category: string (required, max 50 chars)
+    //   - imageUrl: string (required, max 500 chars)
+    //   - active: boolean (required)
+    //
+    // Collection: orders
+    // Document ID: auto-generated
+    // Fields:
+    //   - userId: string (required, matches auth.uid)
+    //   - customerName: string (required, max 100 chars)
+    //   - customerPhone: string (required, max 20 chars)
+    //   - items: list of objects (required, max 50 items)
+    //   - total: number (required, >= 0)
+    //   - status: string (required, enum: pending, preparing, delivering, completed, cancelled)
+    //   - address: map (required, contains cep, street, number, complement, neighborhood, city, state)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: users
+    // Document ID: auth.uid
+    // Fields:
+    //   - role: string (required, enum: admin, customer)
+    //   - email: string (required, email format)
+    //   - name: string (required, max 100 chars)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          request.auth.token.email == "anderson.cafu@gmail.com");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidString(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidProduct() {
+      return hasOnlyAllowedFields(['name', 'description', 'price', 'category', 'imageUrl', 'active', 'addons', 'priceByAddons']) &&
+             isValidString('name', 1, 100) &&
+             isValidString('description', 1, 500) &&
+             request.resource.data.price is number && request.resource.data.price >= 0 &&
+             isValidString('category', 1, 50) &&
+             isValidString('imageUrl', 1, 2000) &&
+             request.resource.data.active is bool &&
+             (!('priceByAddons' in request.resource.data) || request.resource.data.priceByAddons is bool) &&
+             (!('addons' in request.resource.data) || request.resource.data.addons is list);
+    }
+
+    function isValidAddress(addr) {
+      return addr is map &&
+             addr.keys().hasOnly(['cep', 'street', 'number', 'complement', 'neighborhood', 'city', 'state']) &&
+             (!('cep' in addr) || (addr.cep is string && addr.cep.size() <= 10)) &&
+             (!('street' in addr) || (addr.street is string && addr.street.size() <= 150)) &&
+             (!('number' in addr) || (addr.number is string && addr.number.size() <= 20)) &&
+             (!('complement' in addr) || addr.complement == null || (addr.complement is string && addr.complement.size() <= 100)) &&
+             (!('neighborhood' in addr) || (addr.neighborhood is string && addr.neighborhood.size() <= 100)) &&
+             (!('city' in addr) || (addr.city is string && addr.city.size() <= 100)) &&
+             (!('state' in addr) || (addr.state is string && addr.state.size() <= 50));
+    }
+
+    function isValidOrderItems(items) {
+      return items is list && items.size() > 0 && items.size() <= 50;
+    }
+
+    function isValidOrder() {
+      return hasOnlyAllowedFields(['userId', 'customerName', 'customerPhone', 'items', 'total', 'subtotal', 'deliveryFee', 'status', 'address', 'createdAt', 'paymentMethod', 'changeFor', 'archived']) &&
+             request.resource.data.userId is string &&
+             isValidString('customerName', 1, 100) &&
+             isValidString('customerPhone', 1, 20) &&
+             isValidOrderItems(request.resource.data.items) &&
+             request.resource.data.total is number && request.resource.data.total >= 0 &&
+             (!('subtotal' in request.resource.data) || (request.resource.data.subtotal is number && request.resource.data.subtotal >= 0)) &&
+             (!('deliveryFee' in request.resource.data) || (request.resource.data.deliveryFee is number && request.resource.data.deliveryFee >= 0)) &&
+             (!('paymentMethod' in request.resource.data) || request.resource.data.paymentMethod in ['card', 'cash']) &&
+             (!('changeFor' in request.resource.data) || (request.resource.data.changeFor is number && request.resource.data.changeFor >= request.resource.data.total)) &&
+             request.resource.data.status in ['pending', 'preparing', 'delivering', 'completed', 'cancelled'] &&
+             isValidAddress(request.resource.data.address) &&
+             request.resource.data.createdAt is timestamp &&
+             (!('archived' in request.resource.data) || request.resource.data.archived is bool);
+    }
+
+    function isValidUser() {
+      return hasOnlyAllowedFields(['role', 'email', 'name']) &&
+             request.resource.data.role in ['admin', 'customer'] &&
+             isValidEmail(request.resource.data.email) &&
+             isValidString('name', 1, 100);
+    }
+
+    function isValidDeliverySettings() {
+      return hasOnlyAllowedFields(['feeUpTo3', 'feeUpTo5', 'feeUpTo8', 'feeOver8', 'fallbackFee']) &&
+             request.resource.data.feeUpTo3 is number && request.resource.data.feeUpTo3 >= 0 &&
+             request.resource.data.feeUpTo5 is number && request.resource.data.feeUpTo5 >= 0 &&
+             request.resource.data.feeUpTo8 is number && request.resource.data.feeUpTo8 >= 0 &&
+             request.resource.data.feeOver8 is number && request.resource.data.feeOver8 >= 0 &&
+             request.resource.data.fallbackFee is number && request.resource.data.fallbackFee >= 0;
+    }
+
+    function isValidStoreSettings() {
+      return hasOnlyAllowedFields(['openTime', 'closeTime', 'isOpen', 'operatingDays']) &&
+             request.resource.data.openTime is string && request.resource.data.openTime.size() <= 5 &&
+             request.resource.data.closeTime is string && request.resource.data.closeTime.size() <= 5 &&
+             request.resource.data.isOpen is bool &&
+             (!('operatingDays' in request.resource.data) || request.resource.data.operatingDays is list);
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin() && (
+        (settingId == 'delivery' && isValidDeliverySettings()) ||
+        (settingId == 'store' && isValidStoreSettings())
+      );
+    }
+
+    match /products/{productId} {
+      allow read: if true; // Publicly readable menu
+      allow create, update: if isAdmin() && isValidProduct();
+      allow delete: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && isValidOrder() && request.resource.data.userId == request.auth.uid && request.resource.data.status == 'pending';
+      allow update: if isAuthenticated() && (
+        (resource.data.userId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && request.resource.data.status == 'cancelled') || 
+        (isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['userId', 'createdAt'])) 
+      );
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && (get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid || isAdmin());
+        allow create: if isAuthenticated() && (get(/databases/$(database)/documents/orders/$(orderId)).data.userId == request.auth.uid || isAdmin()) &&
+                      request.resource.data.keys().hasOnly(['text', 'senderId', 'senderName', 'isAdmin', 'createdAt']) &&
+                      request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 1000 &&
+                      request.resource.data.senderId == request.auth.uid &&
+                      request.resource.data.createdAt is timestamp;
+      }
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser() && (request.resource.data.role == 'customer' || isAdmin());
+      allow update: if isAuthenticated() && isOwner(userId) && isValidUser() && (
+        (request.resource.data.role == resource.data.role) || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+  }
+}
