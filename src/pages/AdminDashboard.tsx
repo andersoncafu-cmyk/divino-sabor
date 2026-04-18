@@ -57,13 +57,16 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 }
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'settings' | 'history'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'settings' | 'history' | 'coupons'>('orders');
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [coupons, setCoupons] = useState<any[]>([]);
   const [deliverySettings, setDeliverySettings] = useState<any>(null);
   const [storeSettings, setStoreSettings] = useState<any>(null);
   const [isEditingProduct, setIsEditingProduct] = useState(false);
   const [currentProduct, setCurrentProduct] = useState<any>(null);
+  const [isEditingCoupon, setIsEditingCoupon] = useState(false);
+  const [currentCoupon, setCurrentCoupon] = useState<any>(null);
   const [activeChatOrder, setActiveChatOrder] = useState<string | null>(null);
   const [isEndShiftModalOpen, setIsEndShiftModalOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<string | null>(null);
@@ -144,6 +147,12 @@ export default function AdminDashboard() {
       setProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
+    // Fetch coupons
+    const qCoupons = query(collection(db, 'coupons'));
+    const unsubCoupons = onSnapshot(qCoupons, (snap) => {
+      setCoupons(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
     // Fetch delivery settings
     const unsubSettings = onSnapshot(doc(db, 'settings', 'delivery'), (docSnap) => {
       if (docSnap.exists()) {
@@ -176,6 +185,7 @@ export default function AdminDashboard() {
     return () => {
       unsubOrders();
       unsubProducts();
+      unsubCoupons();
       unsubSettings();
       unsubStoreSettings();
     };
@@ -257,6 +267,12 @@ export default function AdminDashboard() {
             <span>R$ ${order.deliveryFee.toFixed(2)}</span>
           </div>
           ` : ''}
+          ${order.coupon ? `
+          <div class="flex-between" style="font-size: 14px; color: #4ade80;">
+            <span>Cupom (${order.coupon.code})</span>
+            <span>- ${order.coupon.type === 'fixed' ? `R$ ${order.coupon.discount.toFixed(2)}` : `${order.coupon.discount}%`}</span>
+          </div>
+          ` : ''}
           <div class="flex-between bold" style="font-size: 16px; margin-top: 5px;">
             <span>TOTAL</span>
             <span>R$ ${order.total.toFixed(2)}</span>
@@ -317,6 +333,44 @@ export default function AdminDashboard() {
       }
     }
     return url;
+  };
+
+  const handleSaveCoupon = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const formattedCoupon = {
+        ...currentCoupon,
+        code: currentCoupon.code.toUpperCase(),
+        discount: Number(currentCoupon.discount),
+        minOrderValue: Number(currentCoupon.minOrderValue) || 0,
+        active: currentCoupon.active !== undefined ? currentCoupon.active : true,
+      };
+
+      if (currentCoupon.id) {
+        await updateDoc(doc(db, 'coupons', currentCoupon.id), formattedCoupon);
+      } else {
+        await addDoc(collection(db, 'coupons'), {
+          ...formattedCoupon,
+          createdAt: new Date().toISOString()
+        });
+      }
+      setIsEditingCoupon(false);
+      setCurrentCoupon(null);
+    } catch (error) {
+      console.error('Error saving coupon:', error);
+      alert('Erro ao salvar cupom. Tente novamente.');
+    }
+  };
+
+  const handleDeleteCoupon = async (couponId: string) => {
+    if (window.confirm('Tem certeza que deseja excluir este cupom?')) {
+      try {
+        await deleteDoc(doc(db, 'coupons', couponId));
+      } catch (error) {
+        console.error('Error deleting coupon:', error);
+        alert('Erro ao excluir cupom. Tente novamente.');
+      }
+    }
   };
 
   const handleSaveProduct = async (e: React.FormEvent) => {
@@ -474,6 +528,12 @@ export default function AdminDashboard() {
               Cardápio
             </button>
             <button 
+              onClick={() => setActiveTab('coupons')}
+              className={`px-6 py-2 rounded-full text-sm font-bold transition-colors ${activeTab === 'coupons' ? 'bg-accent text-dark' : 'text-gray-400 hover:text-white'}`}
+            >
+              Cupons
+            </button>
+            <button 
               onClick={() => setActiveTab('settings')}
               className={`px-6 py-2 rounded-full text-sm font-bold transition-colors ${activeTab === 'settings' ? 'bg-accent text-dark' : 'text-gray-400 hover:text-white'}`}
             >
@@ -570,6 +630,12 @@ export default function AdminDashboard() {
                             <div className="flex justify-between text-sm text-gray-400">
                               <span>Taxa de Entrega</span>
                               <span>R$ {order.deliveryFee.toFixed(2)}</span>
+                            </div>
+                          )}
+                          {order.coupon && (
+                            <div className="flex justify-between text-sm text-green-400">
+                              <span>Cupom ({order.coupon.code})</span>
+                              <span>- {order.coupon.type === 'fixed' ? `R$ ${order.coupon.discount.toFixed(2)}` : `${order.coupon.discount}%`}</span>
                             </div>
                           )}
                           <div className="flex justify-between font-bold text-accent mt-1 pt-1 border-t border-white/5">
@@ -806,6 +872,22 @@ export default function AdminDashboard() {
                           })}
                         </ul>
                         <div className="border-t border-white/10 mt-3 pt-3 flex flex-col gap-1">
+                          <div className="flex justify-between text-sm text-gray-400">
+                            <span>Subtotal</span>
+                            <span>R$ {(order.subtotal || order.total).toFixed(2)}</span>
+                          </div>
+                          {order.deliveryFee !== undefined && (
+                            <div className="flex justify-between text-sm text-gray-400">
+                              <span>Taxa de Entrega</span>
+                              <span>R$ {order.deliveryFee.toFixed(2)}</span>
+                            </div>
+                          )}
+                          {order.coupon && (
+                            <div className="flex justify-between text-sm text-green-400">
+                              <span>Cupom ({order.coupon.code})</span>
+                              <span>- {order.coupon.type === 'fixed' ? `R$ ${order.coupon.discount.toFixed(2)}` : `${order.coupon.discount}%`}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between font-bold text-accent mt-1 pt-1 border-t border-white/5">
                             <span>Total</span>
                             <span>R$ {order.total.toFixed(2)}</span>
@@ -826,6 +908,99 @@ export default function AdminDashboard() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'coupons' && (
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-display font-bold">Gerenciar Cupons</h2>
+              <button 
+                onClick={() => {
+                  setCurrentCoupon({ code: '', discount: 0, minOrderValue: 0, active: true, type: 'percentage' });
+                  setIsEditingCoupon(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-accent text-dark font-bold rounded-full hover:bg-white transition-colors"
+              >
+                <Plus className="w-5 h-5" />
+                Novo Cupom
+              </button>
+            </div>
+
+            {isEditingCoupon && currentCoupon && (
+              <div className="bg-darker border border-white/10 rounded-2xl p-6 mb-8 animate-in fade-in slide-in-from-top-4">
+                <h3 className="text-xl font-bold mb-4">{currentCoupon.id ? 'Editar Cupom' : 'Novo Cupom'}</h3>
+                <form onSubmit={handleSaveCoupon} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Código do Cupom</label>
+                    <input required type="text" value={currentCoupon.code} onChange={e => setCurrentCoupon({...currentCoupon, code: e.target.value.toUpperCase()})} className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-accent uppercase" placeholder="EX: BEMVINDO10" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Tipo de Desconto</label>
+                    <select value={currentCoupon.type || 'percentage'} onChange={e => setCurrentCoupon({...currentCoupon, type: e.target.value})} className="w-full bg-dark border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-accent">
+                      <option value="percentage">Porcentagem (%)</option>
+                      <option value="fixed">Valor Fixo (R$)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Valor do Desconto</label>
+                    <input required type="number" step="0.01" value={currentCoupon.discount || ''} onChange={e => setCurrentCoupon({...currentCoupon, discount: parseFloat(e.target.value)})} className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-accent" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Valor Mínimo do Pedido (R$)</label>
+                    <input required type="number" step="0.01" value={currentCoupon.minOrderValue || ''} onChange={e => setCurrentCoupon({...currentCoupon, minOrderValue: parseFloat(e.target.value)})} className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-accent" />
+                  </div>
+                  <div className="md:col-span-2 flex items-center gap-2 mt-2">
+                    <input type="checkbox" id="couponActive" checked={currentCoupon.active !== false} onChange={e => setCurrentCoupon({...currentCoupon, active: e.target.checked})} className="w-4 h-4 rounded border-white/10 bg-white/5 text-accent focus:ring-accent focus:ring-offset-dark" />
+                    <label htmlFor="couponActive" className="text-sm text-white">Cupom Ativo</label>
+                  </div>
+                  <div className="md:col-span-2 flex gap-4 mt-4">
+                    <button type="submit" className="flex-1 bg-accent text-dark font-bold py-3 rounded-xl hover:bg-white transition-colors">
+                      {currentCoupon.id ? 'Salvar Alterações' : 'Criar Cupom'}
+                    </button>
+                    <button type="button" onClick={() => setIsEditingCoupon(false)} className="flex-1 bg-white/10 text-white font-bold py-3 rounded-xl hover:bg-white/20 transition-colors">
+                      Cancelar
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {coupons.map(coupon => (
+                <div key={coupon.id} className={`bg-darker border rounded-2xl p-6 transition-all ${coupon.active ? 'border-accent/50' : 'border-white/10 opacity-75'}`}>
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h3 className="text-xl font-bold text-white uppercase tracking-wider">{coupon.code}</h3>
+                      <p className="text-accent font-bold mt-1">
+                        {coupon.type === 'fixed' ? `R$ ${coupon.discount.toFixed(2)}` : `${coupon.discount}%`} de desconto
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => {
+                          setCurrentCoupon(coupon);
+                          setIsEditingCoupon(true);
+                        }}
+                        className="p-2 text-gray-400 hover:text-white transition-colors"
+                      >
+                        <Edit2 className="w-5 h-5" />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteCoupon(coupon.id)}
+                        className="p-2 text-red-400 hover:text-red-300 transition-colors"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2 text-sm text-gray-400">
+                    <p>Pedido mínimo: R$ {coupon.minOrderValue.toFixed(2)}</p>
+                    <p>Status: <span className={coupon.active ? 'text-green-400' : 'text-red-400'}>{coupon.active ? 'Ativo' : 'Inativo'}</span></p>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

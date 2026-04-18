@@ -65,6 +65,20 @@
         "name": { "type": "string", "description": "The display name of the user" }
       },
       "required": ["role", "email", "name"]
+    },
+    "Coupon": {
+      "title": "Coupon",
+      "description": "A discount coupon",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "description": "The coupon code" },
+        "discount": { "type": "number", "description": "The discount amount" },
+        "minOrderValue": { "type": "number", "description": "The minimum order value to apply the coupon" },
+        "active": { "type": "boolean", "description": "Whether the coupon is active" },
+        "type": { "type": "string", "enum": ["percentage", "fixed"], "description": "The type of discount" },
+        "createdAt": { "type": "string", "format": "timestamp", "description": "When the coupon was created" }
+      },
+      "required": ["code", "discount", "minOrderValue", "active", "type", "createdAt"]
     }
   },
   "firestore": {
@@ -79,6 +93,10 @@
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "The collection of user profiles and roles"
+    },
+    "/coupons/{couponId}": {
+      "schema": { "$ref": "#/entities/Coupon" },
+      "description": "The collection of all discount coupons"
     }
   }
 }

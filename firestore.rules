@@ -107,8 +107,18 @@ service cloud.firestore {
       return items is list && items.size() > 0 && items.size() <= 50;
     }
 
+    function isValidCoupon() {
+      return hasOnlyAllowedFields(['code', 'discount', 'minOrderValue', 'active', 'type', 'createdAt']) &&
+             isValidString('code', 1, 50) &&
+             request.resource.data.discount is number && request.resource.data.discount >= 0 &&
+             request.resource.data.minOrderValue is number && request.resource.data.minOrderValue >= 0 &&
+             request.resource.data.active is bool &&
+             (!('type' in request.resource.data) || request.resource.data.type in ['percentage', 'fixed']) &&
+             (!('createdAt' in request.resource.data) || request.resource.data.createdAt is string || request.resource.data.createdAt is timestamp);
+    }
+
     function isValidOrder() {
-      return hasOnlyAllowedFields(['userId', 'customerName', 'customerPhone', 'items', 'total', 'subtotal', 'deliveryFee', 'status', 'address', 'createdAt', 'paymentMethod', 'changeFor', 'archived']) &&
+      return hasOnlyAllowedFields(['userId', 'customerName', 'customerPhone', 'items', 'total', 'subtotal', 'deliveryFee', 'status', 'address', 'createdAt', 'paymentMethod', 'changeFor', 'archived', 'coupon']) &&
              request.resource.data.userId is string &&
              isValidString('customerName', 1, 100) &&
              isValidString('customerPhone', 1, 20) &&
@@ -121,7 +131,8 @@ service cloud.firestore {
              request.resource.data.status in ['pending', 'preparing', 'delivering', 'completed', 'cancelled'] &&
              isValidAddress(request.resource.data.address) &&
              request.resource.data.createdAt is timestamp &&
-             (!('archived' in request.resource.data) || request.resource.data.archived is bool);
+             (!('archived' in request.resource.data) || request.resource.data.archived is bool) &&
+             (!('coupon' in request.resource.data) || request.resource.data.coupon == null || request.resource.data.coupon is map);
     }
 
     function isValidUser() {
@@ -163,6 +174,12 @@ service cloud.firestore {
     match /products/{productId} {
       allow read: if true; // Publicly readable menu
       allow create, update: if isAdmin() && isValidProduct();
+      allow delete: if isAdmin();
+    }
+
+    match /coupons/{couponId} {
+      allow read: if true; // Publicly readable for validation
+      allow create, update: if isAdmin() && isValidCoupon();
       allow delete: if isAdmin();
     }
 

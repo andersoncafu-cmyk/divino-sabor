@@ -18,17 +18,20 @@ export interface CartItem {
 interface CartState {
   items: CartItem[];
   isCartOpen: boolean;
+  coupon: any | null;
   addItem: (item: Omit<CartItem, 'quantity' | 'id'>) => void;
   removeItem: (id: string) => void;
   updateQuantity: (id: string, quantity: number) => void;
   clearCart: () => void;
   toggleCart: () => void;
+  setCoupon: (coupon: any | null) => void;
   total: () => number;
 }
 
 export const useCartStore = create<CartState>((set, get) => ({
   items: [],
   isCartOpen: false,
+  coupon: null,
   addItem: (item) => {
     set((state) => {
       // Generate a unique ID based on product ID and selected addons
@@ -65,13 +68,22 @@ export const useCartStore = create<CartState>((set, get) => ({
       };
     });
   },
-  clearCart: () => set({ items: [] }),
+  clearCart: () => set({ items: [], coupon: null }),
   toggleCart: () => set((state) => ({ isCartOpen: !state.isCartOpen })),
+  setCoupon: (coupon) => set({ coupon }),
   total: () => {
-    const { items } = get();
-    return items.reduce((acc, item) => {
+    const { items, coupon } = get();
+    const subtotal = items.reduce((acc, item) => {
       const itemTotal = item.price + (item.addons?.reduce((sum, addon) => sum + addon.price, 0) || 0);
       return acc + itemTotal * item.quantity;
     }, 0);
+
+    if (!coupon) return subtotal;
+
+    if (coupon.type === 'fixed') {
+      return Math.max(0, subtotal - coupon.discount);
+    } else {
+      return Math.max(0, subtotal * (1 - coupon.discount / 100));
+    }
   },
 }));

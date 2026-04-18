@@ -136,29 +136,29 @@ export default function LandingPage({ user, isAdmin }: { user: any, isAdmin: boo
     <div className="min-h-screen bg-dark text-white font-body overflow-x-hidden selection:bg-accent selection:text-dark">
       {/* HEADER */}
       <header ref={headerRef} className="fixed top-0 left-0 w-full z-50 transition-all duration-300">
-        <div className="max-w-7xl mx-auto px-6 h-32 md:h-40 flex items-center justify-between">
-          <a href="#" className="flex items-center">
-            <img src="https://lh3.googleusercontent.com/d/1j2rL6c4tNJY7cUCU4n3ecXi7bKiucbOT" alt="Divino Sabor" className="h-24 md:h-36 object-contain" referrerPolicy="no-referrer" />
+        <div className="max-w-7xl mx-auto pl-4 pr-6 md:px-6 h-24 md:h-40 flex items-center justify-between">
+          <a href="#" className="flex items-center min-w-0 flex-1">
+            <img src="https://lh3.googleusercontent.com/d/1-E1xyd5TgL_j6hHd3jOt1Ivs1VlHTkwI" alt="Império K&T" className="h-16 sm:h-20 md:h-36 object-contain" referrerPolicy="no-referrer" />
           </a>
           <nav className="hidden md:flex gap-8 text-sm font-medium text-gray-300 tracking-wide uppercase">
             <a href="#menu" className="hover:text-accent transition-colors">Cardápio</a>
             <a href="#diferenciais" className="hover:text-accent transition-colors">Diferenciais</a>
             <a href="#sobre" className="hover:text-accent transition-colors">Sobre</a>
           </nav>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 md:gap-4 flex-shrink-0">
             <button onClick={toggleCart} className="relative p-2 text-white hover:text-accent transition-colors">
-              <ShoppingCart className="w-6 h-6" />
+              <ShoppingCart className="w-5 h-5 md:w-6 md:h-6" />
               {cartItemCount > 0 && (
-                <span className="absolute top-0 right-0 bg-accent text-dark text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center transform translate-x-1 -translate-y-1">
+                <span className="absolute top-0 right-0 bg-accent text-dark text-[10px] md:text-xs font-bold rounded-full w-4 h-4 md:w-5 md:h-5 flex items-center justify-center transform translate-x-1 -translate-y-1">
                   {cartItemCount}
                 </span>
               )}
             </button>
             
             {user ? (
-              <div className="flex items-center gap-4">
-                <button onClick={() => setIsMyOrdersOpen(true)} className="hidden md:flex items-center gap-2 text-sm font-medium text-gray-300 hover:text-white transition-colors">
-                  <Package className="w-4 h-4" /> Meus Pedidos
+              <div className="flex items-center gap-2 md:gap-4">
+                <button onClick={() => setIsMyOrdersOpen(true)} className="flex items-center gap-1 md:gap-2 text-xs md:text-sm font-medium text-gray-300 hover:text-white transition-colors">
+                  <Package className="w-4 h-4" /> <span className="hidden sm:inline">Meus Pedidos</span>
                 </button>
                 {isAdmin && (
                   <Link to="/admin" className="hidden md:flex items-center gap-2 text-sm font-medium text-accent hover:text-white transition-colors">
@@ -166,11 +166,11 @@ export default function LandingPage({ user, isAdmin }: { user: any, isAdmin: boo
                   </Link>
                 )}
                 <button onClick={logout} className="p-2 text-gray-400 hover:text-white transition-colors" title="Sair">
-                  <LogOut className="w-5 h-5" />
+                  <LogOut className="w-4 h-4 md:w-5 md:h-5" />
                 </button>
               </div>
             ) : (
-              <button onClick={signInWithGoogle} className="hidden md:inline-flex items-center justify-center px-6 py-2.5 text-sm font-semibold text-dark bg-accent hover:bg-white transition-colors rounded-full">
+              <button onClick={signInWithGoogle} className="inline-flex items-center justify-center px-4 py-2 md:px-6 md:py-2.5 text-xs md:text-sm font-semibold text-dark bg-accent hover:bg-white transition-colors rounded-full">
                 Entrar
               </button>
             )}
@@ -340,10 +340,10 @@ export default function LandingPage({ user, isAdmin }: { user: any, isAdmin: boo
       <footer className="py-12 border-t border-white/5">
         <div className="max-w-7xl mx-auto px-6 text-center">
           <a href="#" className="inline-block mb-6">
-            <img src="https://lh3.googleusercontent.com/d/1j2rL6c4tNJY7cUCU4n3ecXi7bKiucbOT" alt="Divino Sabor" className="h-32 md:h-48 object-contain mx-auto" referrerPolicy="no-referrer" />
+            <img src="https://lh3.googleusercontent.com/d/1-E1xyd5TgL_j6hHd3jOt1Ivs1VlHTkwI" alt="Império K&T" className="h-32 md:h-48 object-contain mx-auto" referrerPolicy="no-referrer" />
           </a>
           <p className="text-gray-500 text-sm">
-            © 2025 Divino Sabor Lanchonete Temática. Todos os direitos reservados.
+            © 2026 Império K&T. Todos os direitos reservados.
           </p>
         </div>
       </footer>

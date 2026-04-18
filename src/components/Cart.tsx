@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useCartStore } from '../store/cartStore';
-import { X, Minus, Plus, ShoppingBag, Loader2 } from 'lucide-react';
+import { X, Minus, Plus, ShoppingBag, Loader2, ShoppingCart } from 'lucide-react';
 import { auth, db } from '../firebase';
 import { collection, addDoc, serverTimestamp, doc, getDoc, query, where, getDocs } from 'firebase/firestore';
 
@@ -74,7 +74,7 @@ export default function Cart() {
     }
     return url;
   };
-  const { items, isCartOpen, toggleCart, removeItem, updateQuantity, total, clearCart, addItem } = useCartStore();
+  const { items, isCartOpen, toggleCart, removeItem, updateQuantity, total, clearCart, addItem, coupon, setCoupon } = useCartStore();
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [loadingCep, setLoadingCep] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -85,7 +85,15 @@ export default function Cart() {
   const [storeSettings, setStoreSettings] = useState<any>(null);
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'cash'>('card');
   const [changeFor, setChangeFor] = useState('');
+  const [couponCode, setCouponCode] = useState('');
+  const [couponError, setCouponError] = useState('');
+  const [applyingCoupon, setApplyingCoupon] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
+  const [showUpsell, setShowUpsell] = useState(false);
+  const [upsellSuggestions, setUpsellSuggestions] = useState<any[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
+  const [selectedProductForAddons, setSelectedProductForAddons] = useState<any>(null);
+  const [selectedAddons, setSelectedAddons] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchSettingsAndProducts = async () => {
@@ -272,6 +280,126 @@ export default function Cart() {
 
   const storeOpen = isStoreOpen();
 
+  const handleApplyCoupon = async () => {
+    if (!couponCode) return;
+    setApplyingCoupon(true);
+    setCouponError('');
+    
+    try {
+      const q = query(collection(db, 'coupons'), where('code', '==', couponCode.toUpperCase()));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        setCouponError('Cupom inválido ou não encontrado.');
+        setCoupon(null);
+        setApplyingCoupon(false);
+        return;
+      }
+
+      const couponData = querySnapshot.docs[0].data();
+      
+      if (!couponData.active) {
+        setCouponError('Este cupom não está mais ativo.');
+        setCoupon(null);
+        setApplyingCoupon(false);
+        return;
+      }
+
+      const cartSubtotal = items.reduce((acc, item) => {
+        const itemTotal = item.price + (item.addons?.reduce((sum, addon) => sum + addon.price, 0) || 0);
+        return acc + itemTotal * item.quantity;
+      }, 0);
+
+      if (cartSubtotal < couponData.minOrderValue) {
+        setCouponError(`O valor mínimo para este cupom é R$ ${couponData.minOrderValue.toFixed(2)}`);
+        setCoupon(null);
+        setApplyingCoupon(false);
+        return;
+      }
+
+      setCoupon(couponData);
+      setCouponCode('');
+    } catch (error) {
+      console.error('Error applying coupon:', error);
+      setCouponError('Erro ao aplicar cupom.');
+    } finally {
+      setApplyingCoupon(false);
+    }
+  };
+
+  const categories = ['Todos', ...Array.from(new Set(products.map(p => p.category)))];
+  const filteredProducts = selectedCategory === 'Todos' 
+    ? products 
+    : products.filter(p => p.category === selectedCategory);
+
+  const handleAddFromCart = (product: any) => {
+    if (product.addons && product.addons.length > 0) {
+      setSelectedProductForAddons(product);
+      setSelectedAddons([]);
+    } else {
+      addItem({
+        productId: product.id,
+        name: product.name,
+        price: product.price,
+        imageUrl: product.imageUrl,
+        addons: []
+      });
+    }
+  };
+
+  const handleConfirmAddToCartWithAddons = () => {
+    if (!selectedProductForAddons) return;
+    if (selectedProductForAddons.priceByAddons && selectedAddons.length === 0) return;
+    
+    addItem({
+      productId: selectedProductForAddons.id,
+      name: selectedProductForAddons.name,
+      price: selectedProductForAddons.priceByAddons ? 0 : selectedProductForAddons.price,
+      imageUrl: selectedProductForAddons.imageUrl,
+      addons: selectedAddons
+    });
+    
+    setSelectedProductForAddons(null);
+    setSelectedAddons([]);
+  };
+
+  const handleContinueToCheckout = () => {
+    // Check if cart has drinks or desserts
+    const hasDrinks = items.some(item => {
+      const product = products.find(p => p.id === item.productId);
+      return product?.category?.toLowerCase().includes('bebida');
+    });
+    
+    const hasDesserts = items.some(item => {
+      const product = products.find(p => p.id === item.productId);
+      return product?.category?.toLowerCase().includes('sobremesa') || product?.category?.toLowerCase().includes('doce');
+    });
+
+    let suggestions: any[] = [];
+
+    if (!hasDrinks) {
+      suggestions = [...suggestions, ...products.filter(p => p.category?.toLowerCase().includes('bebida'))];
+    }
+    
+    if (!hasDesserts) {
+      suggestions = [...suggestions, ...products.filter(p => p.category?.toLowerCase().includes('sobremesa') || p.category?.toLowerCase().includes('doce'))];
+    }
+
+    if (suggestions.length === 0) {
+      // fallback: suggest anything that is not in cart
+      suggestions = products.filter(p => !items.some(i => i.productId === p.id));
+    }
+
+    if (suggestions.length > 0) {
+      // Pick 2 random suggestions
+      const randomSuggestions = suggestions.sort(() => 0.5 - Math.random()).slice(0, 2);
+      setUpsellSuggestions(randomSuggestions);
+      setShowUpsell(true);
+    } else {
+      setIsCheckingOut(true);
+    }
+  };
+
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!auth.currentUser) {
@@ -293,11 +421,17 @@ export default function Cart() {
           productId: i.productId,
           name: i.name,
           price: i.price,
-          quantity: i.quantity
+          quantity: i.quantity,
+          addons: i.addons || []
         })),
         total: total() + deliveryFee,
         subtotal: total(),
         deliveryFee: deliveryFee,
+        coupon: coupon ? {
+          code: coupon.code,
+          discount: coupon.discount,
+          type: coupon.type
+        } : null,
         status: 'pending',
         paymentMethod,
         ...(paymentMethod === 'cash' && changeFor ? { changeFor: parseFloat(changeFor) } : {}),
@@ -318,8 +452,7 @@ export default function Cart() {
       clearCart();
       setTimeout(() => {
         setSuccess(false);
-        setIsCheckingOut(false);
-        toggleCart();
+        handleCloseCart();
       }, 3000);
     } catch (error) {
       console.error("Error placing order", error);
@@ -329,11 +462,17 @@ export default function Cart() {
     }
   };
 
+  const handleCloseCart = () => {
+    setIsCheckingOut(false);
+    setShowUpsell(false);
+    toggleCart();
+  };
+
   if (!isCartOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex justify-end">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={toggleCart}></div>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleCloseCart}></div>
       
       <div className="relative w-full max-w-md bg-darker h-full shadow-2xl flex flex-col border-l border-white/10 animate-in slide-in-from-right duration-300">
         <div className="flex items-center justify-between p-6 border-b border-white/10">
@@ -341,7 +480,7 @@ export default function Cart() {
             <ShoppingBag className="w-6 h-6 text-accent" />
             {isCheckingOut ? 'Finalizar Pedido' : 'Seu Pedido'}
           </h2>
-          <button onClick={toggleCart} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+          <button onClick={handleCloseCart} className="p-2 hover:bg-white/10 rounded-full transition-colors">
             <X className="w-6 h-6" />
           </button>
         </div>
@@ -360,11 +499,11 @@ export default function Cart() {
           <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-500">
             <ShoppingBag className="w-16 h-16 mb-4 opacity-20" />
             <p>Seu carrinho está vazio.</p>
-            <button onClick={toggleCart} className="mt-6 text-accent hover:underline">
+            <button onClick={handleCloseCart} className="mt-6 text-accent hover:underline">
               Continuar comprando
             </button>
           </div>
-        ) : !isCheckingOut ? (
+        ) : !isCheckingOut && !showUpsell ? (
           <>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {items.map((item) => {
@@ -403,42 +542,42 @@ export default function Cart() {
                 );
               })}
 
-              {/* Sugestões */}
-              {products.filter(p => !items.some(i => i.productId === p.id) && (!p.addons || p.addons.length === 0)).length > 0 && (
-                <div className="mt-8 pt-6 border-t border-white/10">
-                  <h4 className="font-display font-bold text-lg mb-4 text-white">Você também pode gostar</h4>
-                  <div className="space-y-4">
-                    {products
-                      .filter(p => !items.some(i => i.productId === p.id) && (!p.addons || p.addons.length === 0))
-                      .slice(0, 3)
-                      .map(suggestedProduct => (
-                        <div key={suggestedProduct.id} className="flex gap-4 bg-white/5 p-3 rounded-xl items-center">
-                          <img src={getDisplayImageUrl(suggestedProduct.imageUrl)} alt={suggestedProduct.name} className="w-16 h-16 object-cover rounded-lg" referrerPolicy="no-referrer" />
-                          <div className="flex-1">
-                            <h5 className="font-bold text-sm">{suggestedProduct.name}</h5>
-                            <p className="text-accent font-semibold text-sm">R$ {suggestedProduct.price.toFixed(2)}</p>
-                          </div>
-                          <button 
-                            onClick={() => {
-                              addItem({
-                                productId: suggestedProduct.id,
-                                name: suggestedProduct.name,
-                                price: suggestedProduct.price,
-                                imageUrl: suggestedProduct.imageUrl,
-                                addons: []
-                              });
-                            }}
-                            className="p-2 bg-white/10 hover:bg-accent hover:text-dark rounded-full transition-colors"
-                            title="Adicionar"
-                          >
-                            <Plus className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))
-                    }
-                  </div>
+              {/* Adicionar mais itens */}
+              <div className="mt-8 pt-6 border-t border-white/10">
+                <h4 className="font-display font-bold text-lg mb-4 text-white">Adicionar mais itens</h4>
+                
+                {/* Categorias */}
+                <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide mb-4">
+                  {categories.map(category => (
+                    <button
+                      key={category}
+                      onClick={() => setSelectedCategory(category)}
+                      className={`px-4 py-2 rounded-full whitespace-nowrap text-sm font-bold transition-colors ${selectedCategory === category ? 'bg-accent text-dark' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                    >
+                      {category}
+                    </button>
+                  ))}
                 </div>
-              )}
+
+                {/* Produtos */}
+                <div className="space-y-3">
+                  {filteredProducts.map(product => (
+                    <div key={product.id} className="flex gap-4 bg-white/5 p-3 rounded-xl items-center">
+                      <img src={getDisplayImageUrl(product.imageUrl)} alt={product.name} className="w-16 h-16 object-cover rounded-lg" referrerPolicy="no-referrer" />
+                      <div className="flex-1">
+                        <h5 className="font-bold text-sm line-clamp-1">{product.name}</h5>
+                        <p className="text-accent font-semibold text-sm">R$ {product.price.toFixed(2)}</p>
+                      </div>
+                      <button 
+                        onClick={() => handleAddFromCart(product)}
+                        className="px-3 py-1.5 bg-white/10 hover:bg-accent hover:text-dark text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                      >
+                        <Plus className="w-3 h-3" /> Adicionar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="p-6 border-t border-white/10 bg-dark">
               {!storeOpen && (
@@ -447,12 +586,52 @@ export default function Cart() {
                   Horário: {storeSettings?.openTime} às {storeSettings?.closeTime}
                 </div>
               )}
+              
+              <div className="mb-6">
+                <label className="block text-sm text-gray-400 mb-2">Cupom de Desconto</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={couponCode}
+                    onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                    placeholder="Digite seu cupom"
+                    className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-accent uppercase"
+                    disabled={applyingCoupon || !!coupon}
+                  />
+                  {coupon ? (
+                    <button
+                      onClick={() => {
+                        setCoupon(null);
+                        setCouponCode('');
+                      }}
+                      className="px-4 py-2 bg-red-500/20 text-red-400 font-bold rounded-lg hover:bg-red-500/30 transition-colors"
+                    >
+                      Remover
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleApplyCoupon}
+                      disabled={applyingCoupon || !couponCode}
+                      className="px-4 py-2 bg-white/10 text-white font-bold rounded-lg hover:bg-white/20 transition-colors disabled:opacity-50"
+                    >
+                      {applyingCoupon ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Aplicar'}
+                    </button>
+                  )}
+                </div>
+                {couponError && <p className="text-red-400 text-sm mt-2">{couponError}</p>}
+                {coupon && (
+                  <p className="text-green-400 text-sm mt-2">
+                    Cupom aplicado: {coupon.type === 'fixed' ? `R$ ${coupon.discount.toFixed(2)}` : `${coupon.discount}%`} de desconto
+                  </p>
+                )}
+              </div>
+
               <div className="flex justify-between items-center mb-6">
                 <span className="text-gray-400">Total</span>
                 <span className="font-display text-3xl font-bold text-accent">R$ {total().toFixed(2)}</span>
               </div>
               <button 
-                onClick={() => setIsCheckingOut(true)}
+                onClick={handleContinueToCheckout}
                 disabled={!storeOpen}
                 className={`w-full py-4 font-bold text-lg rounded-full transition-colors ${storeOpen ? 'bg-accent text-dark hover:bg-white' : 'bg-gray-600 text-gray-400 cursor-not-allowed'}`}
               >
@@ -460,6 +639,66 @@ export default function Cart() {
               </button>
             </div>
           </>
+        ) : showUpsell ? (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              <div className="text-center mb-8">
+                <h3 className="font-display text-2xl font-bold text-accent mb-2">Que tal adicionar?</h3>
+                <p className="text-gray-400">Separamos algumas sugestões para completar seu pedido.</p>
+              </div>
+              
+              <div className="space-y-4">
+                {upsellSuggestions.map((product) => (
+                  <div key={product.id} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex gap-4">
+                    <img src={getDisplayImageUrl(product.imageUrl)} alt={product.name} className="w-24 h-24 object-cover rounded-xl" referrerPolicy="no-referrer" />
+                    <div className="flex-1 flex flex-col justify-between">
+                      <div>
+                        <h4 className="font-bold text-lg">{product.name}</h4>
+                        <p className="text-accent font-semibold">R$ {product.price.toFixed(2)}</p>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          addItem({
+                            productId: product.id,
+                            name: product.name,
+                            price: product.price,
+                            imageUrl: product.imageUrl
+                          });
+                          // Remove this product from suggestions
+                          const newSuggestions = upsellSuggestions.filter(p => p.id !== product.id);
+                          setUpsellSuggestions(newSuggestions);
+                          if (newSuggestions.length === 0) {
+                            setShowUpsell(false);
+                            setIsCheckingOut(true);
+                          }
+                        }}
+                        className="mt-2 w-full py-2 bg-white/10 hover:bg-white/20 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+                      >
+                        <Plus className="w-4 h-4" /> Adicionar
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="p-6 border-t border-white/10 bg-dark">
+              <button 
+                onClick={() => {
+                  setShowUpsell(false);
+                  setIsCheckingOut(true);
+                }}
+                className="w-full py-4 bg-accent text-dark font-bold text-lg rounded-full hover:bg-white transition-colors"
+              >
+                Continuar para Pagamento
+              </button>
+              <button 
+                onClick={() => setShowUpsell(false)}
+                className="w-full mt-3 py-3 text-gray-400 font-bold hover:text-white transition-colors"
+              >
+                Voltar ao Carrinho
+              </button>
+            </div>
+          </div>
         ) : (
           <form onSubmit={handleCheckout} className="flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto p-6 pb-32 space-y-4">
@@ -570,6 +809,90 @@ export default function Cart() {
           </form>
         )}
       </div>
+
+      {/* ADDONS MODAL INSIDE CART */}
+      {selectedProductForAddons && (
+        <div className="absolute inset-0 z-[110] bg-darker flex flex-col animate-in slide-in-from-bottom-4 duration-200">
+          <div className="p-6 border-b border-white/10 flex justify-between items-center bg-dark">
+            <h3 className="font-display font-bold text-xl">Personalizar Pedido</h3>
+            <button onClick={() => setSelectedProductForAddons(null)} className="text-gray-400 hover:text-white transition-colors">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          
+          <div className="overflow-y-auto flex-1 p-6">
+            <div className="flex gap-4 mb-6">
+              <img src={getDisplayImageUrl(selectedProductForAddons.imageUrl)} alt={selectedProductForAddons.name} className="w-20 h-20 object-cover rounded-xl" referrerPolicy="no-referrer" />
+              <div>
+                <h4 className="font-bold text-lg">{selectedProductForAddons.name}</h4>
+                <p className="text-accent font-semibold">R$ {selectedProductForAddons.price.toFixed(2)}</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex flex-col mb-4">
+                <h5 className="font-bold text-sm text-gray-400 uppercase tracking-wider">Adicionais Disponíveis</h5>
+                {selectedProductForAddons.priceByAddons && (
+                  <span className="text-xs text-accent mt-1">Selecione as opções para compor o valor do item.</span>
+                )}
+              </div>
+              {selectedProductForAddons.addons?.map((addon: any, idx: number) => {
+                const addonCount = selectedAddons.filter(a => a.name === addon.name).length;
+                return (
+                  <div key={idx} className={`flex items-center justify-between p-4 rounded-xl border transition-colors ${addonCount > 0 ? 'border-accent bg-accent/10' : 'border-white/10 bg-white/5'}`}>
+                    <div className="flex items-center gap-3">
+                      <span className="font-medium">{addon.name}</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-accent font-semibold">+ R$ {addon.price.toFixed(2)}</span>
+                      <div className="flex items-center gap-2 bg-dark rounded-full px-1 py-1">
+                        <button 
+                          onClick={() => {
+                            const index = selectedAddons.findIndex(a => a.name === addon.name);
+                            if (index !== -1) {
+                              const newAddons = [...selectedAddons];
+                              newAddons.splice(index, 1);
+                              setSelectedAddons(newAddons);
+                            }
+                          }}
+                          className={`w-6 h-6 flex items-center justify-center rounded-full transition-colors ${addonCount > 0 ? 'hover:bg-white/10 text-white' : 'text-gray-600 cursor-not-allowed'}`}
+                          disabled={addonCount === 0}
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="font-bold text-sm w-4 text-center">{addonCount}</span>
+                        <button 
+                          onClick={() => setSelectedAddons([...selectedAddons, addon])}
+                          className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          
+          <div className="p-6 border-t border-white/10 bg-dark">
+            <div className="flex justify-between items-center mb-4">
+              <span className="text-gray-400">Total do Item</span>
+              <span className="text-2xl font-bold text-accent">
+                R$ {(selectedProductForAddons.priceByAddons ? selectedAddons.reduce((sum, a) => sum + a.price, 0) : selectedProductForAddons.price + selectedAddons.reduce((sum, a) => sum + a.price, 0)).toFixed(2)}
+              </span>
+            </div>
+            <button 
+              onClick={handleConfirmAddToCartWithAddons}
+              disabled={selectedProductForAddons.priceByAddons && selectedAddons.length === 0}
+              className={`w-full py-4 font-bold rounded-xl transition-colors flex items-center justify-center gap-2 ${selectedProductForAddons.priceByAddons && selectedAddons.length === 0 ? 'bg-gray-600 text-gray-400 cursor-not-allowed' : 'bg-accent text-dark hover:bg-white'}`}
+            >
+              <ShoppingCart className="w-5 h-5" />
+              Adicionar ao Carrinho
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

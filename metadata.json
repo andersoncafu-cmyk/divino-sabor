@@ -1,5 +1,5 @@
 {
-  "name": "Site Divino Sabor",
-  "description": "",
+  "name": "Site Império K&T",
+  "description": "Um aplicativo completo de delivery para a hamburgueria Império K&T, com cardápio digital, carrinho de compras, integração com Firebase para pedidos em tempo real, painel administrativo para gerenciamento de produtos, pedidos, configurações da loja e cupons de desconto.",
   "requestFramePermissions": []
 }
